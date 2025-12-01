@@ -1,0 +1,15 @@
+C:\Users\Anon\source\repos\io\io\bin\Debug\x86\leptonica-1.82.0.dll
+C:\Users\Anon\source\repos\io\io\bin\Debug\x86\tesseract50.dll
+C:\Users\Anon\source\repos\io\io\bin\Debug\x64\leptonica-1.82.0.dll
+C:\Users\Anon\source\repos\io\io\bin\Debug\x64\tesseract50.dll
+C:\Users\Anon\source\repos\io\io\bin\Debug\io.exe.config
+C:\Users\Anon\source\repos\io\io\bin\Debug\io.exe
+C:\Users\Anon\source\repos\io\io\bin\Debug\io.pdb
+C:\Users\Anon\source\repos\io\io\bin\Debug\Tesseract.dll
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.csproj.AssemblyReference.cache
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.Properties.Resources.resources
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.csproj.GenerateResource.cache
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.csproj.CoreCompileInputs.cache
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.csproj.Up2Date
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.exe
+C:\Users\Anon\source\repos\io\io\obj\Debug\io.pdb
