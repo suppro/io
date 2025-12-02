@@ -34,20 +34,22 @@ namespace io
     public partial class Form1 : Form
     {
         // === ЭЛЕМЕНТЫ ИНТЕРФЕЙСА ===
-        private Button btnSelectClickRoute;
-        private TextBox txtClickRoutePath;
-        private Button btnSelectWasdRoute;
-        private TextBox txtWasdRoutePath;
-
         private Button btnStart;
         private Button btnStop;
         private RichTextBox logBox;
         private Label lblStatus;
+        private TextBox txtIterations;
+        private Label lblIterations;
 
         // === ПЕРЕМЕННЫЕ ЛОГИКИ ===
         private CancellationTokenSource _cancellationTokenSource;
         private IntPtr gameWindow = IntPtr.Zero;
         private const string WINDOW_NAME = "World";
+        
+        // === ПУТИ К ФАЙЛАМ РОУТОВ ===
+        private readonly string clickRoutePath;
+        private readonly string wasdRoutePath;
+        private readonly string enterRoutePath;
 
         // === WinAPI ===
         [DllImport("user32.dll")] static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
@@ -57,6 +59,8 @@ namespace io
         [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hWnd);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
 
+        const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        const uint MOUSEEVENTF_LEFTUP = 0x0004;
         const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
         const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
@@ -67,6 +71,9 @@ namespace io
         const int VK_W = 0x57, VK_A = 0x41, VK_S = 0x53, VK_D = 0x44;
         const int VK_SPACE = 0x20;
         const int VK_X = 0x58;
+        const int VK_R = 0x52;
+        const int VK_F3 = 0x72;
+        const int VK_3 = 0x33;
         const int VK_NUM5 = 0x65, VK_NUM2 = 0x62, VK_NUM7 = 0x67, VK_NUM8 = 0x68;
 
         delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -77,9 +84,97 @@ namespace io
 
         public Form1()
         {
+            // Определяем пути к файлам роутов в папке Debug
+            string debugPath = Path.GetDirectoryName(Application.ExecutablePath);
+            clickRoutePath = Path.Combine(debugPath, "route.txt");
+            wasdRoutePath = Path.Combine(debugPath, "wasd_route.txt");
+            enterRoutePath = Path.Combine(debugPath, "enter_route.txt");
+            
             InitializeCustomUI();
-            this.Text = "Smart Raid Bot Player (Sequential)";
-            this.Size = new Size(500, 480);
+            this.Text = "IO";
+            this.Size = new Size(500, 420);
+        }
+
+        // === ФУНКЦИЯ СРАВНЕНИЯ ИЗОБРАЖЕНИЙ ===
+        private bool CompareImageWithScreen(int x, int y, int width, int height, string imagePath)
+        {
+            try
+            {
+                if (!File.Exists(imagePath))
+                {
+                    Log($"ОШИБКА: Файл изображения не найден: {imagePath}");
+                    return false;
+                }
+
+                // Загружаем эталонное изображение
+                using (Bitmap template = new Bitmap(imagePath))
+                {
+                    // Делаем скриншот указанной области
+                    using (Bitmap screen = new Bitmap(width, height))
+                    {
+                        using (Graphics g = Graphics.FromImage(screen))
+                        {
+                            g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+                        }
+
+                        // Сохраняем скриншот для отладки
+                        string debugPath = Path.GetDirectoryName(imagePath);
+                        string debugScreenPath = Path.Combine(debugPath, "screen_debug.png");
+                        try
+                        {
+                            screen.Save(debugScreenPath, System.Drawing.Imaging.ImageFormat.Png);
+                            Log($"Скриншот для отладки сохранен: {debugScreenPath}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Не удалось сохранить скриншот для отладки: {ex.Message}");
+                        }
+
+                        // Проверяем размеры
+                        if (screen.Width != template.Width || screen.Height != template.Height)
+                        {
+                            Log($"Размеры не совпадают: экран {screen.Width}x{screen.Height}, шаблон {template.Width}x{template.Height}");
+                            return false;
+                        }
+
+                        // Сравниваем пиксели
+                        int differentPixels = 0;
+                        int totalPixels = width * height;
+                        int tolerance = 5; // Допустимое отклонение цвета
+
+                        for (int i = 0; i < width; i++)
+                        {
+                            for (int j = 0; j < height; j++)
+                            {
+                                Color screenPixel = screen.GetPixel(i, j);
+                                Color templatePixel = template.GetPixel(i, j);
+
+                                // Проверяем разницу в RGB
+                                int diffR = Math.Abs(screenPixel.R - templatePixel.R);
+                                int diffG = Math.Abs(screenPixel.G - templatePixel.G);
+                                int diffB = Math.Abs(screenPixel.B - templatePixel.B);
+
+                                if (diffR > tolerance || diffG > tolerance || diffB > tolerance)
+                                {
+                                    differentPixels++;
+                                }
+                            }
+                        }
+
+                        // Считаем совпадение, если различается менее 5% пикселей
+                        double matchPercentage = 1.0 - ((double)differentPixels / totalPixels);
+                        bool matches = matchPercentage >= 0.70;
+
+                        Log($"Сравнение изображений: совпадение {matchPercentage:P2} (различается {differentPixels} из {totalPixels} пикселей)");
+                        return matches;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка при сравнении изображений: {ex.Message}");
+                return false;
+            }
         }
 
         // === ГЛАВНАЯ ЗАМЕНА ДЛЯ .NET 4.8 ===
@@ -90,67 +185,65 @@ namespace io
 
         private void InitializeCustomUI()
         {
-            // Поле для Click-маршрута
-            Label l1 = new Label() { Text = "1. Click/Command Route:", Location = new Point(10, 15), AutoSize = true };
-            txtClickRoutePath = new TextBox() { Location = new Point(10, 35), Width = 350, ReadOnly = true };
-            btnSelectClickRoute = new Button() { Text = "Обзор Click...", Location = new Point(370, 33), Width = 100 };
+            int startY = 15;
 
-            // Поле для WASD-маршрута
-            Label l2 = new Label() { Text = "2. WASD/Time-based Route:", Location = new Point(10, 75), AutoSize = true };
-            txtWasdRoutePath = new TextBox() { Location = new Point(10, 95), Width = 350, ReadOnly = true };
-            btnSelectWasdRoute = new Button() { Text = "Обзор WASD...", Location = new Point(370, 93), Width = 100 };
+            // Поле для ввода числа итераций
+            lblIterations = new Label() { Text = "Число итераций:", Location = new Point(10, startY), AutoSize = true };
+            txtIterations = new TextBox() { Location = new Point(120, startY - 2), Width = 80, Text = "1" };
 
-            int startY = 135;
+            int buttonY = startY + 30;
+            btnStart = new Button() { Text = "СТАРТ ВСЕГО", Location = new Point(10, buttonY), Width = 150, Height = 40, BackColor = Color.LightGreen };
+            btnStop = new Button() { Text = "СТОП", Location = new Point(170, buttonY), Width = 100, Height = 40, BackColor = Color.LightPink, Enabled = false };
 
-            btnStart = new Button() { Text = "СТАРТ ВСЕГО", Location = new Point(10, startY), Width = 150, Height = 40, BackColor = Color.LightGreen };
-            btnStop = new Button() { Text = "СТОП", Location = new Point(170, startY), Width = 100, Height = 40, BackColor = Color.LightPink, Enabled = false };
+            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(280, buttonY + 10), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
 
-            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(280, startY + 10), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
+            logBox = new RichTextBox() { Location = new Point(10, buttonY + 50), Width = 460, Height = 280, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
 
-            logBox = new RichTextBox() { Location = new Point(10, startY + 50), Width = 460, Height = 250, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
-
-            this.Controls.Add(l1);
-            this.Controls.Add(txtClickRoutePath);
-            this.Controls.Add(btnSelectClickRoute);
-            this.Controls.Add(l2);
-            this.Controls.Add(txtWasdRoutePath);
-            this.Controls.Add(btnSelectWasdRoute);
+            this.Controls.Add(lblIterations);
+            this.Controls.Add(txtIterations);
             this.Controls.Add(btnStart);
             this.Controls.Add(btnStop);
             this.Controls.Add(lblStatus);
             this.Controls.Add(logBox);
 
-            btnSelectClickRoute.Click += (s, e) => BtnSelectRoute_Click(txtClickRoutePath, "Click/Command Route");
-            btnSelectWasdRoute.Click += (s, e) => BtnSelectRoute_Click(txtWasdRoutePath, "WASD Route");
             btnStart.Click += BtnStart_Click;
             btnStop.Click += BtnStop_Click;
         }
 
-        private void BtnSelectRoute_Click(TextBox pathBox, string filterName)
-        {
-            using (OpenFileDialog ofd = new OpenFileDialog())
-            {
-                ofd.Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*";
-                ofd.Title = $"Выберите файл: {filterName}";
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    pathBox.Text = ofd.FileName;
-                }
-            }
-        }
-
         private async void BtnStart_Click(object sender, EventArgs e)
         {
-            if (!File.Exists(txtClickRoutePath.Text))
+            if (!File.Exists(clickRoutePath))
             {
-                Log("ОШИБКА: Файл Click-маршрута не выбран или не существует!");
+                Log($"ОШИБКА: Файл Click-маршрута не найден: {clickRoutePath}");
+                MessageBox.Show($"Файл route.txt не найден в папке:\n{Path.GetDirectoryName(clickRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!File.Exists(txtWasdRoutePath.Text))
+            if (!File.Exists(wasdRoutePath))
             {
-                Log("ОШИБКА: Файл WASD-маршрута не выбран или не существует!");
+                Log($"ОШИБКА: Файл WASD-маршрута не найден: {wasdRoutePath}");
+                MessageBox.Show($"Файл wasd_route.txt не найден в папке:\n{Path.GetDirectoryName(wasdRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            if (!File.Exists(enterRoutePath))
+            {
+                Log($"ОШИБКА: Файл маршрута захода в рейд не найден: {enterRoutePath}");
+                MessageBox.Show($"Файл enter_route.txt не найден в папке:\n{Path.GetDirectoryName(enterRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            
+            // Проверяем число итераций
+            if (!int.TryParse(txtIterations.Text, out int iterations) || iterations < 1)
+            {
+                Log("ОШИБКА: Некорректное число итераций! Должно быть положительное число.");
+                MessageBox.Show("Введите корректное число итераций (положительное число).", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            
+            Log($"Загружены роуты:");
+            Log($"  Click: {clickRoutePath}");
+            Log($"  WASD: {wasdRoutePath}");
+            Log($"  Enter: {enterRoutePath}");
+            Log($"Число итераций: {iterations}");
 
             Log("Поиск окна игры...");
             gameWindow = FindWindow(WINDOW_NAME);
@@ -163,28 +256,167 @@ namespace io
             Log($"Окно найдено! ID: {gameWindow}");
 
             btnStart.Enabled = false;
-            btnSelectClickRoute.Enabled = false;
-            btnSelectWasdRoute.Enabled = false;
+            txtIterations.Enabled = false;
             btnStop.Enabled = true;
-            lblStatus.Text = "В РАБОТЕ (Click)";
-            lblStatus.ForeColor = Color.Orange;
 
             _cancellationTokenSource = new CancellationTokenSource();
             var token = _cancellationTokenSource.Token;
 
             try
             {
-                // 1. ЗАПУСК CLICK-МАРШРУТА
-                await Task.Run(() => RunClickRoute(txtClickRoutePath.Text, token), token);
+                // ЦИКЛ ПО ИТЕРАЦИЯМ
+                for (int iteration = 1; iteration <= iterations; iteration++)
+                {
+                    if (token.IsCancellationRequested) break;
+                    
+                    Log($"========== ИТЕРАЦИЯ {iteration}/{iterations} ==========");
+                    
+                    // 1. ЗАПУСК CLICK-МАРШРУТА
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Click)";
+                    lblStatus.ForeColor = Color.Orange;
+                    await Task.Run(() => RunClickRoute(clickRoutePath, token), token);
 
                 if (token.IsCancellationRequested) return;
 
-                // 2. ЗАПУСК WASD-МАРШРУТА
-                Log("Click-маршрут завершен. Переход к WASD...");
-                lblStatus.Text = "В РАБОТЕ (WASD)";
-                lblStatus.ForeColor = Color.Green;
+                    // 2. ЗАПУСК WASD-МАРШРУТА
+                    Log("Click-маршрут завершен. Переход к WASD...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - WASD)";
+                    lblStatus.ForeColor = Color.Green;
 
-                await Task.Run(() => RunWasdRoute(txtWasdRoutePath.Text, token), token);
+                try
+                {
+                    await Task.Run(() => RunWasdRoute(wasdRoutePath, token));
+                    Log("Task.Run для WASD-маршрута завершен успешно.");
+                }
+                catch (OperationCanceledException)
+                {
+                    Log("WASD-маршрут отменен.");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в WASD-маршруте: {ex.Message}");
+                    Log($"StackTrace: {ex.StackTrace}");
+                    if (token.IsCancellationRequested) return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    Log("Отмена после WASD-маршрута.");
+                    return;
+                }
+
+                    // 3. ФАЗА БОЯ
+                    Log("=== ПЕРЕХОД К ФАЗЕ БОЯ ===");
+                    Log("WASD-маршрут завершен. Переход к фазе боя...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Бой)";
+                    lblStatus.ForeColor = Color.Red;
+                
+                try
+                {
+                    await Task.Run(() => RunBattlePhase(token), token);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в фазе боя: {ex.Message}");
+                    if (token.IsCancellationRequested) return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    Log("Отмена после фазы боя.");
+                    return;
+                }
+
+                    // 4. ФАЗА СБОРА
+                    Log("Фаза боя завершена. Переход к фазе сбора...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Сбор)";
+                    lblStatus.ForeColor = Color.Blue;
+                
+                try
+                {
+                    await Task.Run(() => RunCollectionPhase(token), token);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в фазе сбора: {ex.Message}");
+                    if (token.IsCancellationRequested) return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    Log("Отмена после фазы сбора.");
+                    return;
+                }
+
+                    // 5. ФАЗА ОЖИДАНИЯ ВЫХОДА ИЗ РЕЙДА
+                    Log("Фаза сбора завершена. Переход к фазе ожидания выхода из рейда...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Ожидание)";
+                    lblStatus.ForeColor = Color.Orange;
+                
+                try
+                {
+                    await Task.Run(() => RunWaitForRaidExitPhase(token), token);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в фазе ожидания: {ex.Message}");
+                    if (token.IsCancellationRequested) return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    Log("Отмена после фазы ожидания.");
+                    return;
+                }
+
+                    // 6. ФАЗА СОЗДАНИЯ ГРУППЫ
+                    Log("Ожидание завершено. Переход к фазе создания группы...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Создание группы)";
+                    lblStatus.ForeColor = Color.Purple;
+                
+                try
+                {
+                    await Task.Run(() => RunCreateGroupPhase(token), token);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в фазе создания группы: {ex.Message}");
+                }
+                
+                    if (token.IsCancellationRequested) break;
+                    
+                    // 7. ФАЗА ЗАХОДА В РЕЙД
+                    Log("Создание группы завершено. Переход к фазе захода в рейд...");
+                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Заход в рейд)";
+                    lblStatus.ForeColor = Color.DarkGreen;
+                    
+                    try
+                    {
+                        await Task.Run(() => RunWasdRoute(enterRoutePath, token), token);
+                        Log("Фаза захода в рейд завершена.");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Log("Фаза захода в рейд отменена.");
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Ошибка в фазе захода в рейд: {ex.Message}");
+                        if (token.IsCancellationRequested) break;
+                    }
+                    
+                    if (token.IsCancellationRequested) break;
+                    
+                    Log($"Итерация {iteration}/{iterations} завершена.");
+                    if (iteration < iterations)
+                    {
+                        Log("Переход к следующей итерации...");
+                        PressX();
+                        Thread.Sleep(10000); // Небольшая пауза между итерациями
+                    }
+                }
             }
             catch (OperationCanceledException)
             {
@@ -209,8 +441,7 @@ namespace io
         {
             if (InvokeRequired) { Invoke(new Action(ResetUI)); return; }
             btnStart.Enabled = true;
-            btnSelectClickRoute.Enabled = true;
-            btnSelectWasdRoute.Enabled = true;
+            txtIterations.Enabled = true;
             btnStop.Enabled = false;
             lblStatus.Text = "ОСТАНОВЛЕН";
             lblStatus.ForeColor = Color.Red;
@@ -399,8 +630,11 @@ namespace io
             }
 
             // Финальная очистка
+            Log("Очистка нажатых клавиш после WASD-маршрута...");
             foreach (int vk in currentlyHeldKeys.ToArray()) KeyUp(vk);
-            Log("WASD-маршрут завершен.");
+            currentlyHeldKeys.Clear();
+            waitingForFullSpeed = false;
+            Log("WASD-маршрут завершен. Функция RunWasdRoute завершается.");
         }
 
         private List<WasdEvent> ParseWasdRoute(string filePath)
@@ -519,6 +753,17 @@ namespace io
             mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTUP, (uint)absX, (uint)absY, 0, IntPtr.Zero);
         }
 
+        private void LeftClickAt(int x, int y)
+        {
+            int absX = x * 65535 / Screen.PrimaryScreen.Bounds.Width;
+            int absY = y * 65535 / Screen.PrimaryScreen.Bounds.Height;
+
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+        }
+
         private void KeyDown(int vk) => PostMessage(gameWindow, WM_KEYDOWN, (IntPtr)vk, IntPtr.Zero);
         private void KeyUp(int vk) => PostMessage(gameWindow, WM_KEYUP, (IntPtr)vk, IntPtr.Zero);
         private void PressKey(int vk) { KeyDown(vk); Thread.Sleep(80); KeyUp(vk); }
@@ -542,6 +787,183 @@ namespace io
                 return true;
             }, IntPtr.Zero);
             return found;
+        }
+
+        // === ФАЗА БОЯ ===
+        private void RunBattlePhase(CancellationToken token)
+        {
+            Log("Начало фазы боя...");
+            
+            // Нажимаем F3
+            Log("Нажатие F3");
+            PressKey(VK_F3);
+            if (token.IsCancellationRequested) return;
+            
+            // Нажимаем R
+            Log("Нажатие R");
+            PressKey(VK_R);
+            if (token.IsCancellationRequested) return;
+            
+            // Ждем 0.5 секунды
+            Thread.Sleep(500);
+            if (token.IsCancellationRequested) return;
+            
+            // Поочередно нажимаем S и 3 с задержкой 0.5 сек в течение 10 секунд
+            Log("Начало цикла боя (S и 3) на 10 секунд...");
+            long startTime = GetTimestampMs();
+            long endTime = startTime + 15000; // 10 секунд = 10000 мс
+            bool pressS = true; // Начинаем с S
+            
+            while (GetTimestampMs() < endTime)
+            {
+                if (token.IsCancellationRequested) return;
+                
+                if (pressS)
+                {
+                    Log("Нажатие S");
+                    PressKey(VK_S);
+                }
+                else
+                {
+                    Log("Нажатие 3");
+                    PressKey(VK_3);
+                }
+                
+                pressS = !pressS; // Переключаем между S и 3
+                
+                // Задержка 0.5 секунды
+                Thread.Sleep(100);
+            }
+            
+            Log("Фаза боя завершена.");
+        }
+
+        // === ФАЗА ОЖИДАНИЯ ВЫХОДА ИЗ РЕЙДА ===
+        private void RunWaitForRaidExitPhase(CancellationToken token)
+        {
+            Log("Начало фазы ожидания выхода из рейда (60 секунд)...");
+            
+            // Ждем 1 минуту (60000 мс) с проверкой отмены каждые 500 мс
+            int totalWaitMs = 60000;
+            int checkIntervalMs = 500;
+            int elapsedMs = 0;
+            
+            while (elapsedMs < totalWaitMs)
+            {
+                if (token.IsCancellationRequested) return;
+                
+                Thread.Sleep(checkIntervalMs);
+                elapsedMs += checkIntervalMs;
+                
+                // Показываем оставшееся время каждые 5 секунд
+                if (elapsedMs % 5000 == 0)
+                {
+                    int remainingSeconds = (totalWaitMs - elapsedMs) / 1000;
+                    Log($"Ожидание выхода из рейда... Осталось: {remainingSeconds} сек");
+                }
+            }
+            
+            Log("Фаза ожидания выхода из рейда завершена.");
+        }
+
+        // === ФАЗА СОЗДАНИЯ ГРУППЫ ===
+        private void RunCreateGroupPhase(CancellationToken token)
+        {
+            Log("Начало фазы создания группы...");
+            
+            // Путь к изображению для проверки
+            string debugPath = Path.GetDirectoryName(Application.ExecutablePath);
+            string imagePath = Path.Combine(debugPath, "img.png");
+            
+            // Координаты для кликов
+            int[][] coordinates = new int[][]
+            {
+                new int[] { 1775, 1058 },
+                new int[] { 323, 299 },
+                new int[] { 299, 593 },
+                new int[] { 437, 228 },
+                new int[] { 432, 559 },
+                new int[] { 565, 594 }
+            };
+            
+            // 1. Кликаем на первую координату (левой кнопкой мыши)
+            if (token.IsCancellationRequested) return;
+            Log($"Клик создания группы 1/?: ({coordinates[0][0]}, {coordinates[0][1]})");
+            LeftClickAt(coordinates[0][0], coordinates[0][1]);
+            
+            // Ждем немного, чтобы интерфейс обновился
+            Thread.Sleep(500);
+            if (token.IsCancellationRequested) return;
+            
+            // 2. Проверяем изображение в прямоугольнике
+            // (279, 382) - левый нижний угол, размер 130x173
+            // Левый верхний угол: X=279, Y=382-173=209
+            int rectX = 279;
+            int rectY = 382 - 173; // 209 - левый верхний угол
+            int rectWidth = 130;
+            int rectHeight = 173;
+            Log($"Проверка изображения после первого клика... Прямоугольник: ({rectX}, {rectY}) размер {rectWidth}x{rectHeight}");
+            bool imageMatches = CompareImageWithScreen(rectX, rectY, rectWidth, rectHeight, imagePath);
+            
+            if (imageMatches)
+            {
+                Log("Изображение совпадает. Продолжаем выполнение остальных кликов...");
+                
+                // Выполняем остальные клики (начиная со второго)
+                for (int i = 1; i < coordinates.Length; i++)
+                {
+                    if (token.IsCancellationRequested) return;
+                    
+                    int x = coordinates[i][0];
+                    int y = coordinates[i][1];
+                    Log($"Клик создания группы {i + 1}/{coordinates.Length}: ({x}, {y})");
+                    LeftClickAt(x, y);
+                    
+                    // Задержка 0.3 сек между кликами (не после последнего)
+                    if (i < coordinates.Length - 1)
+                    {
+                        Thread.Sleep(300);
+                    }
+                }
+            }
+            else
+            {
+                Log("Изображение не совпадает. Кликаем сразу на последнюю координату...");
+                
+                // Кликаем сразу на последнюю координату
+                if (token.IsCancellationRequested) return;
+                int lastX = coordinates[coordinates.Length - 1][0];
+                int lastY = coordinates[coordinates.Length - 1][1];
+                Log($"Клик создания группы (последний): ({lastX}, {lastY})");
+                LeftClickAt(lastX, lastY);
+            }
+            
+            Log("Фаза создания группы завершена.");
+        }
+
+        // === ФАЗА СБОРА ===
+        private void RunCollectionPhase(CancellationToken token)
+        {
+            Log("Начало фазы сбора...");
+            
+            // Кликаем 8 раз с задержкой 0.5 сек по координатам 970, 625
+            for (int i = 0; i < 8; i++)
+            {
+                if (token.IsCancellationRequested) return;
+                
+                Log($"Клик сбора {i + 1}/8: (970, 625)");
+                RightClickAt(970, 625);
+                Thread.Sleep(200);
+                LeftClickAt(885, 312);
+
+                // Не ждем после последнего клика
+                if (i < 7)
+                {
+                    Thread.Sleep(500);
+                }
+            }
+            
+            Log("Фаза сбора завершена.");
         }
     }
 }
