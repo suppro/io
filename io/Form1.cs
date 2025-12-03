@@ -39,10 +39,15 @@ namespace io
         private Button btnStop;
         private Button btnTestReadData;
         private Button btnViewDatabase;
+        private Button btnStartRecording;
+        private Button btnStopRecording;
+        private Button btnRunWasdRoute;
         private RichTextBox logBox;
         private Label lblStatus;
         private TextBox txtIterations;
         private Label lblIterations;
+        private ComboBox cmbCharacter;
+        private Label lblCharacter;
 
         // === ПЕРЕМЕННЫЕ ЛОГИКИ ===
         private CancellationTokenSource _cancellationTokenSource;
@@ -96,6 +101,16 @@ namespace io
 
         private HashSet<int> currentlyHeldKeys = new HashSet<int>();
         private bool waitingForFullSpeed = false;
+        
+        // === ПЕРЕМЕННАЯ ДЛЯ ВЫБОРА ПЕРСОНАЖА ===
+        private string selectedCharacter = "Друид"; // По умолчанию друид
+        
+        // === ПЕРЕМЕННЫЕ ДЛЯ ЗАПИСИ МАРШРУТА ===
+        private bool isRecording = false;
+        private List<WasdEvent> recordedRoute = new List<WasdEvent>();
+        private System.Windows.Forms.Timer recordingTimer;
+        private long recordingStartTime = 0;
+        private HashSet<int> lastRecordedKeys = new HashSet<int>();
 
         public Form1()
         {
@@ -107,7 +122,7 @@ namespace io
             
             InitializeCustomUI();
             this.Text = "IO";
-            this.Size = new Size(500, 420);
+            this.Size = new Size(500, 450);
             this.KeyPreview = true; // Включаем обработку клавиш на уровне формы
             this.KeyDown += Form1_KeyDown;
             
@@ -230,23 +245,39 @@ namespace io
             // Поле для ввода числа итераций
             lblIterations = new Label() { Text = "Число итераций:", Location = new Point(10, startY), AutoSize = true };
             txtIterations = new TextBox() { Location = new Point(120, startY - 2), Width = 80, Text = "1" };
+            
+            // Выбор персонажа
+            lblCharacter = new Label() { Text = "Персонаж:", Location = new Point(220, startY), AutoSize = true };
+            cmbCharacter = new ComboBox() { Location = new Point(290, startY - 2), Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
+            cmbCharacter.Items.Add("Друид");
+            cmbCharacter.Items.Add("Маг");
+            cmbCharacter.SelectedIndex = 0; // По умолчанию друид
+            cmbCharacter.SelectedIndexChanged += CmbCharacter_SelectedIndexChanged;
 
             int buttonY = startY + 30;
             btnStart = new Button() { Text = "СТАРТ ВСЕГО", Location = new Point(10, buttonY), Width = 150, Height = 40, BackColor = Color.LightGreen };
             btnStop = new Button() { Text = "СТОП", Location = new Point(170, buttonY), Width = 100, Height = 40, BackColor = Color.LightPink, Enabled = false };
             btnTestReadData = new Button() { Text = "Тест чтения данных", Location = new Point(280, buttonY), Width = 180, Height = 40, BackColor = Color.LightYellow };
             btnViewDatabase = new Button() { Text = "История сессий", Location = new Point(10, buttonY + 50), Width = 150, Height = 30, BackColor = Color.LightCyan };
+            btnStartRecording = new Button() { Text = "Начать запись маршрута", Location = new Point(170, buttonY + 50), Width = 180, Height = 30, BackColor = Color.LightGreen };
+            btnStopRecording = new Button() { Text = "Остановить запись", Location = new Point(360, buttonY + 50), Width = 110, Height = 30, BackColor = Color.LightPink, Enabled = false };
+            btnRunWasdRoute = new Button() { Text = "Воспроизвести WASD", Location = new Point(10, buttonY + 85), Width = 150, Height = 30, BackColor = Color.LightBlue };
 
-            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(170, buttonY + 55), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
+            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(170, buttonY + 90), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
 
-            logBox = new RichTextBox() { Location = new Point(10, buttonY + 90), Width = 460, Height = 240, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
+            logBox = new RichTextBox() { Location = new Point(10, buttonY + 120), Width = 460, Height = 210, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
 
             this.Controls.Add(lblIterations);
             this.Controls.Add(txtIterations);
+            this.Controls.Add(lblCharacter);
+            this.Controls.Add(cmbCharacter);
             this.Controls.Add(btnStart);
             this.Controls.Add(btnStop);
             this.Controls.Add(btnTestReadData);
             this.Controls.Add(btnViewDatabase);
+            this.Controls.Add(btnStartRecording);
+            this.Controls.Add(btnStopRecording);
+            this.Controls.Add(btnRunWasdRoute);
             this.Controls.Add(lblStatus);
             this.Controls.Add(logBox);
 
@@ -254,6 +285,20 @@ namespace io
             btnStop.Click += BtnStop_Click;
             btnTestReadData.Click += BtnTestReadData_Click;
             btnViewDatabase.Click += BtnViewDatabase_Click;
+            btnStartRecording.Click += BtnStartRecording_Click;
+            btnStopRecording.Click += BtnStopRecording_Click;
+            btnRunWasdRoute.Click += BtnRunWasdRoute_Click;
+            
+            // Инициализация таймера для записи
+            recordingTimer = new System.Windows.Forms.Timer();
+            recordingTimer.Interval = 10; // Проверка каждые 10мс
+            recordingTimer.Tick += RecordingTimer_Tick;
+        }
+        
+        private void CmbCharacter_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            selectedCharacter = cmbCharacter.SelectedItem.ToString();
+            Log($"Выбран персонаж: {selectedCharacter}");
         }
 
         private async void BtnStart_Click(object sender, EventArgs e)
@@ -761,8 +806,8 @@ namespace io
                     return;
                 }
 
-                // Обработка застревания/боя
-                if (speed > 0.1f && speed < 150f)
+                // Обработка застревания/боя (только для друида)
+                if (selectedCharacter != "Маг" && speed > 0.1f && speed < 150f)
                 {
                     Log("Бой/Замедление -> Жму X");
                     PressX();
@@ -856,7 +901,62 @@ namespace io
                 {
                     SendKeyUp(ev.VK);
                     if (currentlyHeldKeys.Contains(ev.VK)) currentlyHeldKeys.Remove(ev.VK);
-                    if (ev.VK == VK_W) waitingForFullSpeed = false;
+                    if (ev.VK == VK_W)
+                    {
+                        waitingForFullSpeed = false;
+                        
+                        // Для мага: после отпускания W ждем скорость 0, затем фаза боя и сбор
+                        if (selectedCharacter == "Маг")
+                        {
+                            Log("Маг: после отпускания W ждем скорость 0...");
+                            
+                            // Ждем, пока скорость станет 0
+                            bool moved = false;
+                            long waitStart = GetTimestampMs();
+                            while (GetTimestampMs() - waitStart < 10000) // Максимум 10 секунд ожидания
+                            {
+                                if (token.IsCancellationRequested) return;
+                                
+                                float speed = GetCurrentSpeed();
+                                if (speed > 0.1f) moved = true;
+                                
+                                if (moved && speed <= 0.1f)
+                                {
+                                    Log("Маг: скорость стала 0. Начинаем фазу боя...");
+                                    
+                                    // Фаза боя: 5 нажатий S с интервалом 1 сек
+                                    for (int s = 0; s < 5; s++)
+                                    {
+                                        if (token.IsCancellationRequested) return;
+                                        Log($"Маг: нажатие S {s + 1}/5");
+                                        PressKey(VK_S);
+                                        Thread.Sleep(1000);
+                                    }
+                                    
+                                    // Сбор: 2 клика
+                                    if (token.IsCancellationRequested) return;
+                                    Log("Маг: клик правой кнопкой (970, 625)");
+                                    RightClickAt(970, 625);
+                                    Thread.Sleep(200);
+                                    
+                                    if (token.IsCancellationRequested) return;
+                                    Log("Маг: клик левой кнопкой (885, 312)");
+                                    LeftClickAt(885, 312);
+                                    Thread.Sleep(200);
+                                    
+                                    Log("Маг: фаза боя и сбор завершены. Продолжаем WASD маршрут...");
+                                    break;
+                                }
+                                
+                                Thread.Sleep(100);
+                            }
+                            
+                            if (GetTimestampMs() - waitStart >= 10000)
+                            {
+                                Log("Маг: таймаут ожидания скорости 0. Продолжаем маршрут.");
+                            }
+                        }
+                    }
                 }
                 Log($"WASD: {(ev.IsDown ? "DOWN" : "UP")} 0x{ev.VK:X} ({ev.TimeMs}ms)");
             }
@@ -874,13 +974,13 @@ namespace io
             var events = new List<WasdEvent>();
             foreach (var line in File.ReadAllLines(filePath))
             {
-                // Формат: [TimeMs] [IsDown/KeyUp] [VK_Code]
+                // Формат: [TimeMs] [IsDown/KeyUp] [VK_Code] (VK код в десятичном формате)
                 var p = line.Trim().Split(new char[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 if (p.Length != 3) continue;
 
                 if (long.TryParse(p[0], out long t) &&
                     int.TryParse(p[1], out int down) && // 1=DOWN, 0=UP
-                    int.TryParse(p[2], NumberStyles.HexNumber, null, out int vk)) // VK code в Hex
+                    int.TryParse(p[2], out int vk)) // VK code в десятичном формате
                 {
                     events.Add(new WasdEvent { TimeMs = t, VK = vk, IsDown = down == 1 });
                 }
@@ -898,10 +998,21 @@ namespace io
                     // Проверяем, активна ли логика ожидания W (актуально только для WASD)
                     if (waitingForFullSpeed)
                     {
-                        float speed = GetCurrentSpeed();
-                        if (currentlyHeldKeys.Contains(VK_W) && speed > 0.1f && speed < 153f)
+                        // Для мага не нажимаем X
+                        if (selectedCharacter == "Маг")
                         {
-                            Log($"Замедление ({speed:F1}%) -> Жму X");
+                            Thread.Sleep(120);
+                            continue;
+                        }
+                        
+                        float speed = GetCurrentSpeed();
+                        // Для друида нормальная скорость 155%
+                        float targetSpeed = 155f;
+                        float speedThreshold = 153f;
+                        
+                        if (currentlyHeldKeys.Contains(VK_W) && speed > 0.1f && speed < speedThreshold)
+                        {
+                            Log($"Замедление ({speed:F1}%, цель: {targetSpeed}%) -> Жму X");
                             PressX();
                             Thread.Sleep(650);
                         }
@@ -1115,7 +1226,7 @@ namespace io
             Log("Начало фазы ожидания выхода из рейда (60 секунд)...");
             
             // Ждем 1 минуту (55000 мс) с проверкой статуса боя каждую секунду
-            int totalWaitMs = 55000;
+            int totalWaitMs = 50000;
             int checkIntervalMs = 1000; // Проверяем каждую секунду
             int elapsedMs = 0;
             
@@ -1343,7 +1454,7 @@ namespace io
                 
                 Log("Нажатие NUM8");
                 PressKey(VK_NUM8);
-                Thread.Sleep(1000);
+                Thread.Sleep(2000);
                 
                 // Проверяем статус боя
                 status = ReadCombatStatus();
@@ -1357,7 +1468,7 @@ namespace io
                 if (token.IsCancellationRequested) return;
                 
                 Log("Клик: (1383, 515)");
-                RightClickAt(1383, 515);
+                RightClickAt(1325, 348);
                 Thread.Sleep(500);
                 PressX();
                 
@@ -1472,19 +1583,21 @@ namespace io
             Thread.Sleep(500);
             if (token.IsCancellationRequested) return;
             
-            // Поочередно нажимаем S и 3 до тех пор, пока статус боя не станет DOWN
-            Log("Начало цикла боя (S и 3) до DOWN...");
+            // Поочередно нажимаем S и 3 в течение 6 секунд
+            Log("Начало цикла боя (S и 3) на 6 секунд...");
             bool pressS = true; // Начинаем с S
+            long combatStartTime = GetTimestampMs();
+            const int combatDurationMs = 6000; // 6 секунд
             
             while (true)
             {
                 if (token.IsCancellationRequested) return;
                 
-                // Проверяем статус боя
-                string status = ReadCombatStatus();
-                if (status == "DOWN")
+                // Проверяем, прошло ли 6 секунд
+                long elapsed = GetTimestampMs() - combatStartTime;
+                if (elapsed >= combatDurationMs)
                 {
-                    Log("Статус боя DOWN. Завершение фазы боя.");
+                    Log($"Прошло 6 секунд. Завершение фазы боя.");
                     break;
                 }
                 
@@ -1689,6 +1802,170 @@ namespace io
             {
                 Log($"Ошибка сохранения в БД: {ex.Message}");
             }
+        }
+
+        // === ОБРАБОТЧИКИ КНОПОК ЗАПИСИ И ВОСПРОИЗВЕДЕНИЯ WASD МАРШРУТА ===
+        private void BtnStartRecording_Click(object sender, EventArgs e)
+        {
+            if (isRecording)
+            {
+                Log("Запись уже идет!");
+                return;
+            }
+
+            recordedRoute.Clear();
+            lastRecordedKeys.Clear();
+            recordingStartTime = GetTimestampMs();
+            isRecording = true;
+            recordingTimer.Start();
+
+            btnStartRecording.Enabled = false;
+            btnStopRecording.Enabled = true;
+
+            Log("=== НАЧАЛО ЗАПИСИ WASD МАРШРУТА ===");
+            Log("Нажимайте клавиши для записи. Нажмите 'Остановить запись' для завершения.");
+        }
+
+        private void BtnStopRecording_Click(object sender, EventArgs e)
+        {
+            if (!isRecording)
+            {
+                Log("Запись не активна!");
+                return;
+            }
+
+            isRecording = false;
+            recordingTimer.Stop();
+
+            // Отпускаем все зажатые клавиши
+            foreach (int vk in lastRecordedKeys.ToArray())
+            {
+                long currentTime = GetTimestampMs();
+                long elapsed = currentTime - recordingStartTime;
+                recordedRoute.Add(new WasdEvent { TimeMs = elapsed, VK = vk, IsDown = false });
+            }
+            lastRecordedKeys.Clear();
+
+            btnStartRecording.Enabled = true;
+            btnStopRecording.Enabled = false;
+
+            // Сохраняем маршрут
+            SaveRecordedRoute();
+            Log("=== ЗАПИСЬ ЗАВЕРШЕНА ===");
+        }
+
+        private void RecordingTimer_Tick(object sender, EventArgs e)
+        {
+            if (!isRecording) return;
+
+            long currentTime = GetTimestampMs();
+            long elapsed = currentTime - recordingStartTime;
+
+            // Проверяем основные клавиши движения (W, A, S, D, SPACE и другие)
+            int[] keysToCheck = { VK_W, VK_A, VK_S, VK_D, VK_SPACE, VK_X, VK_Z, VK_R, VK_5, VK_ESC, VK_F2, VK_F3, VK_3 };
+
+            foreach (int vk in keysToCheck)
+            {
+                bool isPressed = (GetAsyncKeyState(vk) & 0x8000) != 0;
+                bool wasPressed = lastRecordedKeys.Contains(vk);
+
+                if (isPressed && !wasPressed)
+                {
+                    // Клавиша нажата
+                    recordedRoute.Add(new WasdEvent { TimeMs = elapsed, VK = vk, IsDown = true });
+                    lastRecordedKeys.Add(vk);
+                    Log($"Записано: DOWN {vk} ({elapsed}ms)");
+                }
+                else if (!isPressed && wasPressed)
+                {
+                    // Клавиша отпущена
+                    recordedRoute.Add(new WasdEvent { TimeMs = elapsed, VK = vk, IsDown = false });
+                    lastRecordedKeys.Remove(vk);
+                    Log($"Записано: UP {vk} ({elapsed}ms)");
+                }
+            }
+        }
+
+        private void SaveRecordedRoute()
+        {
+            if (recordedRoute.Count == 0)
+            {
+                Log("Нет записанных событий для сохранения!");
+                return;
+            }
+
+            try
+            {
+                // Создаем резервную копию старого файла
+                if (File.Exists(wasdRoutePath))
+                {
+                    string backupPath = wasdRoutePath + ".backup_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    File.Copy(wasdRoutePath, backupPath);
+                    Log($"Создана резервная копия: {backupPath}");
+                }
+
+                // Сохраняем в формате: таймстамп\tkeydown/keyup\tvk_code
+                using (StreamWriter writer = new StreamWriter(wasdRoutePath, false, Encoding.UTF8))
+                {
+                    foreach (var ev in recordedRoute)
+                    {
+                        writer.WriteLine($"{ev.TimeMs}\t{(ev.IsDown ? 1 : 0)}\t{ev.VK}");
+                    }
+                }
+
+                Log($"Маршрут сохранен: {wasdRoutePath} ({recordedRoute.Count} событий)");
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка сохранения маршрута: {ex.Message}");
+            }
+        }
+
+        private void BtnRunWasdRoute_Click(object sender, EventArgs e)
+        {
+            if (!File.Exists(wasdRoutePath))
+            {
+                Log($"ОШИБКА: Файл WASD-маршрута не найден: {wasdRoutePath}");
+                MessageBox.Show($"Файл wasd_route.txt не найден в папке:\n{Path.GetDirectoryName(wasdRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            Log("Поиск окна игры...");
+            gameWindow = FindWindow(WINDOW_NAME);
+            if (gameWindow == IntPtr.Zero)
+            {
+                Log("ОШИБКА: Окно 'World' не найдено!");
+                MessageBox.Show("Запустите игру!", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            Log($"Окно найдено! ID: {gameWindow}");
+
+            _cancellationTokenSource = new CancellationTokenSource();
+            var token = _cancellationTokenSource.Token;
+
+            btnRunWasdRoute.Enabled = false;
+            btnStop.Enabled = true;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    RunWasdRoute(wasdRoutePath, token);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка при воспроизведении WASD маршрута: {ex.Message}");
+                }
+                finally
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        btnRunWasdRoute.Enabled = true;
+                        btnStop.Enabled = false;
+                        lblStatus.Text = "Ожидание...";
+                    });
+                }
+            }, token);
         }
     }
 }
