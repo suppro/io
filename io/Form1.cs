@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Linq;
 using Tesseract;
 
 namespace io
@@ -36,6 +37,8 @@ namespace io
         // === ЭЛЕМЕНТЫ ИНТЕРФЕЙСА ===
         private Button btnStart;
         private Button btnStop;
+        private Button btnTestReadData;
+        private Button btnViewDatabase;
         private RichTextBox logBox;
         private Label lblStatus;
         private TextBox txtIterations;
@@ -45,6 +48,11 @@ namespace io
         private CancellationTokenSource _cancellationTokenSource;
         private IntPtr gameWindow = IntPtr.Zero;
         private const string WINDOW_NAME = "World";
+        
+        // === ПЕРЕМЕННЫЕ ДЛЯ ОТСЛЕЖИВАНИЯ ===
+        private long initialGold = 0;
+        private DateTime sessionStartTime;
+        private int totalIterations = 0;
         
         // === ПУТИ К ФАЙЛАМ РОУТОВ ===
         private readonly string clickRoutePath;
@@ -58,6 +66,7 @@ namespace io
         [DllImport("user32.dll")] static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
         [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hWnd);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
 
         const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         const uint MOUSEEVENTF_LEFTUP = 0x0004;
@@ -71,8 +80,14 @@ namespace io
         const int VK_W = 0x57, VK_A = 0x41, VK_S = 0x53, VK_D = 0x44;
         const int VK_SPACE = 0x20;
         const int VK_X = 0x58;
+        const int VK_Z = 0x5A;
         const int VK_R = 0x52;
+        const int VK_5 = 0x35;
+        const int VK_ESC = 0x1B;
+        const int VK_F2 = 0x71;
         const int VK_F3 = 0x72;
+        const int VK_F7 = 0x76;
+        const int VK_F8 = 0x77;
         const int VK_3 = 0x33;
         const int VK_NUM5 = 0x65, VK_NUM2 = 0x62, VK_NUM7 = 0x67, VK_NUM8 = 0x68;
 
@@ -93,6 +108,31 @@ namespace io
             InitializeCustomUI();
             this.Text = "IO";
             this.Size = new Size(500, 420);
+            this.KeyPreview = true; // Включаем обработку клавиш на уровне формы
+            this.KeyDown += Form1_KeyDown;
+            
+            // Инициализируем БД
+            InitializeDatabase();
+        }
+        
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.F8)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                BtnTestReadData_Click(sender, e);
+            }
+        }
+        
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.F8)
+            {
+                BtnTestReadData_Click(this, EventArgs.Empty);
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         // === ФУНКЦИЯ СРАВНЕНИЯ ИЗОБРАЖЕНИЙ ===
@@ -194,20 +234,26 @@ namespace io
             int buttonY = startY + 30;
             btnStart = new Button() { Text = "СТАРТ ВСЕГО", Location = new Point(10, buttonY), Width = 150, Height = 40, BackColor = Color.LightGreen };
             btnStop = new Button() { Text = "СТОП", Location = new Point(170, buttonY), Width = 100, Height = 40, BackColor = Color.LightPink, Enabled = false };
+            btnTestReadData = new Button() { Text = "Тест чтения данных", Location = new Point(280, buttonY), Width = 180, Height = 40, BackColor = Color.LightYellow };
+            btnViewDatabase = new Button() { Text = "История сессий", Location = new Point(10, buttonY + 50), Width = 150, Height = 30, BackColor = Color.LightCyan };
 
-            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(280, buttonY + 10), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
+            lblStatus = new Label() { Text = "Ожидание...", Location = new Point(170, buttonY + 55), AutoSize = true, Font = new Font(FontFamily.GenericSansSerif, 10, FontStyle.Bold) };
 
-            logBox = new RichTextBox() { Location = new Point(10, buttonY + 50), Width = 460, Height = 280, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
+            logBox = new RichTextBox() { Location = new Point(10, buttonY + 90), Width = 460, Height = 240, ReadOnly = true, BackColor = Color.Black, ForeColor = Color.Lime };
 
             this.Controls.Add(lblIterations);
             this.Controls.Add(txtIterations);
             this.Controls.Add(btnStart);
             this.Controls.Add(btnStop);
+            this.Controls.Add(btnTestReadData);
+            this.Controls.Add(btnViewDatabase);
             this.Controls.Add(lblStatus);
             this.Controls.Add(logBox);
 
             btnStart.Click += BtnStart_Click;
             btnStop.Click += BtnStop_Click;
+            btnTestReadData.Click += BtnTestReadData_Click;
+            btnViewDatabase.Click += BtnViewDatabase_Click;
         }
 
         private async void BtnStart_Click(object sender, EventArgs e)
@@ -224,12 +270,6 @@ namespace io
                 MessageBox.Show($"Файл wasd_route.txt не найден в папке:\n{Path.GetDirectoryName(wasdRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!File.Exists(enterRoutePath))
-            {
-                Log($"ОШИБКА: Файл маршрута захода в рейд не найден: {enterRoutePath}");
-                MessageBox.Show($"Файл enter_route.txt не найден в папке:\n{Path.GetDirectoryName(enterRoutePath)}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
             
             // Проверяем число итераций
             if (!int.TryParse(txtIterations.Text, out int iterations) || iterations < 1)
@@ -242,7 +282,6 @@ namespace io
             Log($"Загружены роуты:");
             Log($"  Click: {clickRoutePath}");
             Log($"  WASD: {wasdRoutePath}");
-            Log($"  Enter: {enterRoutePath}");
             Log($"Число итераций: {iterations}");
 
             Log("Поиск окна игры...");
@@ -254,6 +293,13 @@ namespace io
                 return;
             }
             Log($"Окно найдено! ID: {gameWindow}");
+            
+            // Запоминаем начальные данные
+            sessionStartTime = DateTime.Now;
+            totalIterations = iterations;
+            Log("Чтение начального количества голды...");
+            initialGold = ReadGoldAmount();
+            Log($"Начальная голда: {initialGold}");
 
             btnStart.Enabled = false;
             txtIterations.Enabled = false;
@@ -370,7 +416,39 @@ namespace io
                     return;
                 }
 
-                    // 6. ФАЗА СОЗДАНИЯ ГРУППЫ
+                    // 6. ФАЗА ПРОДАЖИ (если нужно)
+                    bool isLastIteration = (iteration == iterations);
+                    int inventorySlots = ReadInventorySlots();
+                    Log($"Свободных слотов в инвентаре: {inventorySlots}");
+                    
+                    if (inventorySlots < 35 || isLastIteration)
+                    {
+                        Log("Запуск фазы продажи...");
+                        lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Продажа)";
+                        lblStatus.ForeColor = Color.Gold;
+                        
+                        try
+                        {
+                            await Task.Run(() => RunSellPhase(token), token);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Ошибка в фазе продажи: {ex.Message}");
+                            if (token.IsCancellationRequested) return;
+                        }
+                        
+                        if (token.IsCancellationRequested)
+                        {
+                            Log("Отмена после фазы продажи.");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        Log($"Пропуск фазы продажи (свободных слотов: {inventorySlots}, требуется < 35)");
+                    }
+
+                    // 7. ФАЗА СОЗДАНИЯ ГРУППЫ
                     Log("Ожидание завершено. Переход к фазе создания группы...");
                     lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Создание группы)";
                     lblStatus.ForeColor = Color.Purple;
@@ -386,14 +464,14 @@ namespace io
                 
                     if (token.IsCancellationRequested) break;
                     
-                    // 7. ФАЗА ЗАХОДА В РЕЙД
+                    // 8. ФАЗА ЗАХОДА В РЕЙД
                     Log("Создание группы завершено. Переход к фазе захода в рейд...");
                     lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Заход в рейд)";
                     lblStatus.ForeColor = Color.DarkGreen;
                     
                     try
                     {
-                        await Task.Run(() => RunWasdRoute(enterRoutePath, token), token);
+                        await Task.Run(() => RunEnterRaidPhase(token), token);
                         Log("Фаза захода в рейд завершена.");
                     }
                     catch (OperationCanceledException)
@@ -417,6 +495,21 @@ namespace io
                         Thread.Sleep(10000); // Небольшая пауза между итерациями
                     }
                 }
+                
+                // Финальное чтение голды и сохранение в БД
+                DateTime sessionEndTime = DateTime.Now;
+                long finalGold = ReadGoldAmount();
+                long profit = finalGold - initialGold;
+                
+                Log("========================================");
+                Log($"СЕССИЯ ЗАВЕРШЕНА");
+                Log($"Начальная голда: {initialGold}");
+                Log($"Финальная голда: {finalGold}");
+                Log($"Прибыль: {profit}");
+                Log("========================================");
+                
+                // Сохраняем в БД
+                SaveSessionToDatabase(sessionStartTime, sessionEndTime, totalIterations, profit);
             }
             catch (OperationCanceledException)
             {
@@ -436,7 +529,136 @@ namespace io
         {
             _cancellationTokenSource?.Cancel();
         }
-
+        
+        private void BtnViewDatabase_Click(object sender, EventArgs e)
+        {
+            DatabaseViewer viewer = new DatabaseViewer();
+            viewer.ShowDialog();
+        }
+        
+        private void BtnTestReadData_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Log("=== Чтение данных персонажа (F8) ===");
+                
+                // Получаем путь к папке проекта для сохранения скриншотов
+                string projectPath = Path.GetDirectoryName(Application.ExecutablePath);
+                string screenshotsPath = Path.Combine(projectPath, "screenshots");
+                if (!Directory.Exists(screenshotsPath))
+                {
+                    Directory.CreateDirectory(screenshotsPath);
+                }
+                
+                // Читаем голду (левый нижний угол 1524, 1021, размер 58x27)
+                // Верхний левый угол: (1524, 1021 - 27) = (1524, 994)
+                string gold = ReadTextFromScreen(1524, 994, 58, 27, Path.Combine(screenshotsPath, "gold.png"));
+                Log($"Голда: {gold}");
+                
+                // Читаем инвентарь (левый нижний угол 1464, 1029, размер 61x41)
+                // Верхний левый угол: (1464, 1029 - 41) = (1464, 988)
+                string inventory = ReadTextFromScreen(1464, 988, 61, 41, Path.Combine(screenshotsPath, "inventory.png"));
+                Log($"Инвентарь: {inventory}");
+                
+                // Читаем статус боя (левый нижний угол 64, 539, размер 151x48)
+                // Верхний левый угол: (64, 539 - 48) = (64, 491)
+                string combatStatus = ReadTextFromScreen(64, 491, 151, 48, Path.Combine(screenshotsPath, "combat_status.png"));
+                Log($"Статус боя: {combatStatus}");
+                
+                Log($"=== Чтение завершено. Скриншоты сохранены в: {screenshotsPath} ===");
+            }
+            catch (Exception ex)
+            {
+                Log($"ОШИБКА при чтении данных: {ex.Message}");
+            }
+        }
+        
+        private string ReadTextFromScreen(int x, int y, int width, int height, string savePath = null)
+        {
+            try
+            {
+                using (Bitmap bmp = new Bitmap(width, height))
+                {
+                    using (Graphics g = Graphics.FromImage(bmp))
+                    {
+                        g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+                    }
+                    
+                    // Сохраняем оригинальный скриншот, если указан путь
+                    if (!string.IsNullOrEmpty(savePath))
+                    {
+                        try
+                        {
+                            bmp.Save(savePath, System.Drawing.Imaging.ImageFormat.Png);
+                            Log($"Скриншот сохранен: {savePath}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Не удалось сохранить скриншот {savePath}: {ex.Message}");
+                        }
+                    }
+                    
+                    // Обработка изображения для лучшего распознавания
+                    using (Bitmap proc = new Bitmap(bmp.Width, bmp.Height))
+                    {
+                        // Определяем, нужно ли инвертировать (для всех показателей используем одинаковую обработку)
+                        bool needsInversion = savePath != null && 
+                            (savePath.Contains("gold") || savePath.Contains("inventory") || savePath.Contains("combat_status"));
+                        
+                        for (int px = 0; px < bmp.Width; px++)
+                        {
+                            for (int py = 0; py < bmp.Height; py++)
+                            {
+                                Color c = bmp.GetPixel(px, py);
+                                // Преобразуем в черно-белое для лучшего OCR
+                                int gray = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
+                                
+                                // Для всех показателей используем инвертирование и более низкий порог
+                                if (needsInversion)
+                                {
+                                    // Инвертируем: темный текст на светлом фоне -> светлый текст на темном
+                                    proc.SetPixel(px, py, gray > 100 ? Color.Black : Color.White);
+                                }
+                                else
+                                {
+                                    // Обычная обработка (для других случаев)
+                                    proc.SetPixel(px, py, gray > 128 ? Color.White : Color.Black);
+                                }
+                            }
+                        }
+                        
+                        // Сохраняем обработанное изображение для отладки
+                        if (!string.IsNullOrEmpty(savePath))
+                        {
+                            string processedPath = savePath.Replace(".png", "_processed.png");
+                            try
+                            {
+                                proc.Save(processedPath, System.Drawing.Imaging.ImageFormat.Png);
+                            }
+                            catch { }
+                        }
+                        
+                        using (var engine = new TesseractEngine("./tessdata", "eng", EngineMode.Default))
+                        {
+                            // Разрешаем цифры, буквы и некоторые символы
+                            engine.SetVariable("tessedit_char_whitelist", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz /");
+                            engine.DefaultPageSegMode = PageSegMode.SingleBlock;
+                            
+                            using (var page = engine.Process(proc))
+                            {
+                                string text = page.GetText().Trim();
+                                return string.IsNullOrWhiteSpace(text) ? "(не распознано)" : text;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return $"(ошибка: {ex.Message})";
+            }
+        }
+        
         private void ResetUI()
         {
             if (InvokeRequired) { Invoke(new Action(ResetUI)); return; }
@@ -473,6 +695,7 @@ namespace io
             // Включаем монитор скорости для ожидания остановки
             Task speedMonitor = Task.Run(() => MonitorSpeed_Smart(token), token);
 
+            int clickCount = 0;
             foreach (var cmd in commands)
             {
                 if (token.IsCancellationRequested) return;
@@ -480,10 +703,19 @@ namespace io
                 switch (cmd.Command)
                 {
                     case "CLICK":
+                        clickCount++;
                         Log($"Клик: {cmd.X}, {cmd.Y}");
                         RightClickAt(cmd.X, cmd.Y);
                         // ГЛАВНОЕ ИСПРАВЛЕНИЕ: Ждем пока персонаж не остановится после клика
                         WaitUntilStopped(token);
+                        
+                        // После второго клика нажимаем F2
+                        if (clickCount == 2)
+                        {
+                            Log("Нажатие F2 после второго клика");
+                            PressKey(VK_F2);
+                            Thread.Sleep(200);
+                        }
                         break;
                     case "SLEEP":
                         Log($"Задержка: {cmd.DelayMs} мс");
@@ -616,13 +848,13 @@ namespace io
                 // Выполнение действия
                 if (ev.IsDown)
                 {
-                    KeyDown(ev.VK);
+                    SendKeyDown(ev.VK);
                     if (!currentlyHeldKeys.Contains(ev.VK)) currentlyHeldKeys.Add(ev.VK);
                     if (ev.VK == VK_W) waitingForFullSpeed = true;
                 }
                 else
                 {
-                    KeyUp(ev.VK);
+                    SendKeyUp(ev.VK);
                     if (currentlyHeldKeys.Contains(ev.VK)) currentlyHeldKeys.Remove(ev.VK);
                     if (ev.VK == VK_W) waitingForFullSpeed = false;
                 }
@@ -631,7 +863,7 @@ namespace io
 
             // Финальная очистка
             Log("Очистка нажатых клавиш после WASD-маршрута...");
-            foreach (int vk in currentlyHeldKeys.ToArray()) KeyUp(vk);
+            foreach (int vk in currentlyHeldKeys.ToArray()) SendKeyUp(vk);
             currentlyHeldKeys.Clear();
             waitingForFullSpeed = false;
             Log("WASD-маршрут завершен. Функция RunWasdRoute завершается.");
@@ -744,30 +976,65 @@ namespace io
 
         private void RightClickAt(int x, int y)
         {
-            int absX = x * 65535 / Screen.PrimaryScreen.Bounds.Width;
-            int absY = y * 65535 / Screen.PrimaryScreen.Bounds.Height;
-
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, (uint)absX, (uint)absY, 0, IntPtr.Zero);
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTDOWN, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            // Сначала перемещаем мышь (как в тестовой программе)
+            MoveMouse(x, y);
+            
+            // Затем делаем клик
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, IntPtr.Zero);
             Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTUP, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTUP, 0, 0, 0, IntPtr.Zero);
+        }
+        
+        private void MoveMouse(int x, int y)
+        {
+            uint absX = (uint)(x * 65535 / Screen.PrimaryScreen.Bounds.Width);
+            uint absY = (uint)(y * 65535 / Screen.PrimaryScreen.Bounds.Height);
+            mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, IntPtr.Zero);
         }
 
         private void LeftClickAt(int x, int y)
         {
-            int absX = x * 65535 / Screen.PrimaryScreen.Bounds.Width;
-            int absY = y * 65535 / Screen.PrimaryScreen.Bounds.Height;
-
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, (uint)absX, (uint)absY, 0, IntPtr.Zero);
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            // Сначала перемещаем мышь (как в тестовой программе)
+            MoveMouse(x, y);
+            
+            // Затем делаем клик
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
             Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, (uint)absX, (uint)absY, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
         }
 
-        private void KeyDown(int vk) => PostMessage(gameWindow, WM_KEYDOWN, (IntPtr)vk, IntPtr.Zero);
-        private void KeyUp(int vk) => PostMessage(gameWindow, WM_KEYUP, (IntPtr)vk, IntPtr.Zero);
-        private void PressKey(int vk) { KeyDown(vk); Thread.Sleep(80); KeyUp(vk); }
+        private void SendKeyDown(int vk) => PostMessage(gameWindow, WM_KEYDOWN, (IntPtr)vk, IntPtr.Zero);
+        private void SendKeyUp(int vk) => PostMessage(gameWindow, WM_KEYUP, (IntPtr)vk, IntPtr.Zero);
+        private void PressKey(int vk) { SendKeyDown(vk); Thread.Sleep(80); SendKeyUp(vk); }
         private void PressX() => PressKey(VK_X);
+        
+        private bool IsKeyDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
+        
+        private void WaitForF8Key(CancellationToken token)
+        {
+            // Ждем отпускания клавиши (если она уже нажата)
+            while (IsKeyDown(VK_F8))
+            {
+                if (token.IsCancellationRequested) return;
+                Thread.Sleep(50);
+            }
+            
+            // Ждем нажатия F8
+            while (!IsKeyDown(VK_F8))
+            {
+                if (token.IsCancellationRequested) return;
+                Thread.Sleep(50);
+            }
+            
+            // Ждем отпускания клавиши
+            while (IsKeyDown(VK_F8))
+            {
+                if (token.IsCancellationRequested) return;
+                Thread.Sleep(50);
+            }
+            
+            Log("F8 нажата, продолжаем выполнение...");
+        }
 
         private IntPtr FindWindow(string contains)
         {
@@ -805,8 +1072,12 @@ namespace io
             if (token.IsCancellationRequested) return;
             
             // Ждем 0.5 секунды
-            Thread.Sleep(500);
+            Thread.Sleep(200);
             if (token.IsCancellationRequested) return;
+            Log("Нажатие R");
+            PressKey(VK_R);
+            if (token.IsCancellationRequested) return;
+            Thread.Sleep(300);
             
             // Поочередно нажимаем S и 3 с задержкой 0.5 сек в течение 10 секунд
             Log("Начало цикла боя (S и 3) на 10 секунд...");
@@ -843,14 +1114,23 @@ namespace io
         {
             Log("Начало фазы ожидания выхода из рейда (60 секунд)...");
             
-            // Ждем 1 минуту (60000 мс) с проверкой отмены каждые 500 мс
-            int totalWaitMs = 60000;
-            int checkIntervalMs = 500;
+            // Ждем 1 минуту (55000 мс) с проверкой статуса боя каждую секунду
+            int totalWaitMs = 55000;
+            int checkIntervalMs = 1000; // Проверяем каждую секунду
             int elapsedMs = 0;
             
             while (elapsedMs < totalWaitMs)
             {
                 if (token.IsCancellationRequested) return;
+                
+                // Проверяем статус боя каждую секунду
+                string status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    // После боя продолжаем ожидание (не перезапускаем фазу)
+                }
                 
                 Thread.Sleep(checkIntervalMs);
                 elapsedMs += checkIntervalMs;
@@ -941,6 +1221,151 @@ namespace io
             Log("Фаза создания группы завершена.");
         }
 
+        // === ФАЗА ЗАХОДА В РЕЙД ===
+        private void RunEnterRaidPhase(CancellationToken token)
+        {
+            while (true)
+            {
+                Log("Начало фазы захода в рейд...");
+                
+                if (token.IsCancellationRequested) return;
+                
+                // Проверяем статус боя перед началом
+                string status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    // После боя перезапускаем фазу захода в рейд
+                    continue;
+                }
+                
+                Log("Нажатие NUM2");
+                PressKey(VK_NUM2);
+                Thread.Sleep(500);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Нажатие NUM2 (второй раз)");
+                PressKey(VK_NUM2);
+                Thread.Sleep(1500);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Нажатие F7");
+                PressKey(VK_F7);
+                Thread.Sleep(200);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Нажатие SPACE");
+                PressKey(VK_SPACE);
+                Thread.Sleep(500);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Клик: (1160, 117)");
+                RightClickAt(1160, 117);
+                
+                // Во время ожидания проверяем статус боя каждую секунду
+                Log("Ожидание 10 секунд...");
+                for (int i = 0; i < 10; i++)
+                {
+                    Thread.Sleep(1000);
+                    if (token.IsCancellationRequested) return;
+                    
+                    status = ReadCombatStatus();
+                    if (status == "UP")
+                    {
+                        Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                        RunCombatPhaseWith5(token);
+                        break; // Выходим из цикла ожидания
+                    }
+                }
+                
+                // Если был бой, перезапускаем фазу
+                if (status == "UP")
+                {
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Нажатие F7");
+                PressKey(VK_F7);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Нажатие NUM8");
+                PressKey(VK_NUM8);
+                Thread.Sleep(1000);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                Log("Клик: (1383, 515)");
+                RightClickAt(1383, 515);
+                Thread.Sleep(500);
+                PressX();
+                
+                Log("Фаза захода в рейд завершена.");
+                break; // Выходим из цикла
+            }
+        }
+
         // === ФАЗА СБОРА ===
         private void RunCollectionPhase(CancellationToken token)
         {
@@ -964,6 +1389,306 @@ namespace io
             }
             
             Log("Фаза сбора завершена.");
+        }
+        
+        // === ФУНКЦИИ ДЛЯ ЧТЕНИЯ ДАННЫХ ===
+        private long ReadGoldAmount()
+        {
+            try
+            {
+                string goldText = ReadTextFromScreen(1524, 994, 58, 27, null);
+                // Убираем все нецифровые символы
+                string digitsOnly = new string(goldText.Where(char.IsDigit).ToArray());
+                if (long.TryParse(digitsOnly, out long gold))
+                {
+                    return gold;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка чтения голды: {ex.Message}");
+            }
+            return 0;
+        }
+        
+        private int ReadInventorySlots()
+        {
+            try
+            {
+                string inventoryText = ReadTextFromScreen(1464, 988, 61, 41, null);
+                // Убираем все нецифровые символы
+                string digitsOnly = new string(inventoryText.Where(char.IsDigit).ToArray());
+                if (int.TryParse(digitsOnly, out int slots))
+                {
+                    return slots;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка чтения инвентаря: {ex.Message}");
+            }
+            return 0;
+        }
+        
+        private string ReadCombatStatus()
+        {
+            try
+            {
+                string statusText = ReadTextFromScreen(64, 491, 151, 48, null);
+                // Ищем UP или DOWN в тексте
+                string upperText = statusText.ToUpper();
+                if (upperText.Contains("UP"))
+                {
+                    return "UP";
+                }
+                else if (upperText.Contains("DOWN"))
+                {
+                    return "DOWN";
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка чтения статуса боя: {ex.Message}");
+            }
+            return "UNKNOWN";
+        }
+        
+        // === ФАЗА БОЯ С 5 (вместо R) ===
+        private void RunCombatPhaseWith5(CancellationToken token)
+        {
+            Log("Начало фазы боя (с 5)...");
+            
+            if (token.IsCancellationRequested) return;
+            
+            // Нажимаем F3
+            Log("Нажатие F3");
+            PressKey(VK_F3);
+            Thread.Sleep(200);
+            if (token.IsCancellationRequested) return;
+            
+            // Нажимаем 5 (вместо R)
+            Log("Нажатие 5");
+            PressKey(VK_5);
+            Thread.Sleep(500);
+            if (token.IsCancellationRequested) return;
+            
+            // Поочередно нажимаем S и 3 до тех пор, пока статус боя не станет DOWN
+            Log("Начало цикла боя (S и 3) до DOWN...");
+            bool pressS = true; // Начинаем с S
+            
+            while (true)
+            {
+                if (token.IsCancellationRequested) return;
+                
+                // Проверяем статус боя
+                string status = ReadCombatStatus();
+                if (status == "DOWN")
+                {
+                    Log("Статус боя DOWN. Завершение фазы боя.");
+                    break;
+                }
+                
+                if (pressS)
+                {
+                    Log("Нажатие S");
+                    SendKeyDown(VK_S);
+                    Thread.Sleep(500);
+                    SendKeyUp(VK_S);
+                }
+                else
+                {
+                    Log("Нажатие 3");
+                    PressKey(VK_3);
+                }
+                
+                pressS = !pressS;
+                Thread.Sleep(500);
+            }
+            
+            // Нажимаем ESC
+            Log("Нажатие ESC");
+            PressKey(VK_ESC);
+            Thread.Sleep(500);
+            
+            Log("Фаза боя завершена.");
+        }
+        
+        // === ФАЗА ПРОДАЖИ ===
+        private void RunSellPhase(CancellationToken token)
+        {
+            while (true)
+            {
+                Log("Начало фазы продажи...");
+                
+                if (token.IsCancellationRequested) return;
+                
+                // Проверяем статус боя перед началом
+                string status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    // После боя перезапускаем фазу продажи
+                    continue;
+                }
+                
+                // 1. Нажатие клавиши Z
+                Log("Нажатие Z");
+                PressKey(VK_Z);
+                Thread.Sleep(1000);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue; // Перезапускаем фазу
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                // 2. Нажатие NUM8
+                Log("Нажатие NUM8");
+                PressKey(VK_NUM8);
+                Thread.Sleep(1000);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue; // Перезапускаем фазу
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                // 3. Клик правой кнопкой на 1067, 721
+                Log("Клик правой кнопкой: (1067, 721)");
+                RightClickAt(1067, 721);
+                Thread.Sleep(500);
+                
+                // Проверяем статус боя
+                status = ReadCombatStatus();
+                if (status == "UP")
+                {
+                    Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                    RunCombatPhaseWith5(token);
+                    continue; // Перезапускаем фазу
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                // 4. Клик левой кнопкой на 147, 177
+                Log("Клик левой кнопкой: (147, 177)");
+                LeftClickAt(147, 177);
+                
+                // Во время ожидания проверяем статус боя каждую секунду
+                for (int i = 0; i < 15; i++)
+                {
+                    Thread.Sleep(1000);
+                    if (token.IsCancellationRequested) return;
+                    
+                    status = ReadCombatStatus();
+                    if (status == "UP")
+                    {
+                        Log("Обнаружен статус боя UP! Начинаем фазу боя...");
+                        RunCombatPhaseWith5(token);
+                        break; // Выходим из цикла ожидания
+                    }
+                }
+                
+                // Если был бой, перезапускаем фазу
+                if (status == "UP")
+                {
+                    continue;
+                }
+                
+                if (token.IsCancellationRequested) return;
+                
+                // 5. Клик левой кнопкой на 383, 141
+                Log("Клик левой кнопкой: (383, 141)");
+                LeftClickAt(383, 141);
+                Thread.Sleep(500);
+                
+                Log("Фаза продажи завершена.");
+                break; // Выходим из цикла
+            }
+        }
+        
+        // === БАЗА ДАННЫХ (XML) ===
+        private void InitializeDatabase()
+        {
+            try
+            {
+                string xmlPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "sessions.xml");
+                
+                // Создаем XML файл, если его нет
+                if (!File.Exists(xmlPath))
+                {
+                    XDocument doc = new XDocument(
+                        new XElement("Sessions")
+                    );
+                    doc.Save(xmlPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка инициализации БД: {ex.Message}");
+            }
+        }
+        
+        private void SaveSessionToDatabase(DateTime startTime, DateTime endTime, int iterations, long profit)
+        {
+            try
+            {
+                string xmlPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "sessions.xml");
+                
+                XDocument doc;
+                if (File.Exists(xmlPath))
+                {
+                    doc = XDocument.Load(xmlPath);
+                }
+                else
+                {
+                    doc = new XDocument(new XElement("Sessions"));
+                }
+                
+                // Находим максимальный ID
+                int maxId = 0;
+                if (doc.Root != null)
+                {
+                    var ids = doc.Root.Elements("Session")
+                        .Select(s => int.TryParse(s.Element("Id")?.Value, out int id) ? id : 0);
+                    maxId = ids.Any() ? ids.Max() : 0;
+                }
+                
+                // Добавляем новую сессию
+                XElement newSession = new XElement("Session",
+                    new XElement("Id", maxId + 1),
+                    new XElement("StartTime", startTime.ToString("yyyy-MM-dd HH:mm:ss")),
+                    new XElement("EndTime", endTime.ToString("yyyy-MM-dd HH:mm:ss")),
+                    new XElement("Iterations", iterations),
+                    new XElement("Profit", profit)
+                );
+                
+                if (doc.Root == null)
+                {
+                    doc = new XDocument(new XElement("Sessions", newSession));
+                }
+                else
+                {
+                    doc.Root.Add(newSession);
+                }
+                
+                doc.Save(xmlPath);
+                Log($"Данные сессии сохранены в БД: {xmlPath}");
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка сохранения в БД: {ex.Message}");
+            }
         }
     }
 }

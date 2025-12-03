@@ -3,19 +3,23 @@
   "WorkspaceRootPath": "C:\\Users\\Anon\\source\\repos\\io\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|c:\\users\\anon\\source\\repos\\io\\io\\databaseviewer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|solutionrelative:io\\databaseviewer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|c:\\users\\anon\\source\\repos\\io\\io\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|solutionrelative:io\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|c:\\users\\anon\\source\\repos\\io\\io\\packages.config||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|C:\\Users\\Anon\\source\\repos\\io\\io\\packages.config||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
       "RelativeMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|solutionrelative:io\\packages.config||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|c:\\users\\anon\\source\\repos\\io\\io\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|C:\\Users\\Anon\\source\\repos\\io\\io\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
       "RelativeMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|solutionrelative:io\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|c:\\users\\anon\\source\\repos\\io\\io\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|C:\\Users\\Anon\\source\\repos\\io\\io\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{06D3C453-9CA8-4E97-8DE0-4F4F0615C237}|io\\io.csproj|solutionrelative:io\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
@@ -26,7 +30,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Bookmark",
@@ -34,7 +38,19 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
+              "Title": "DatabaseViewer.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "DocumentMoniker": "C:\\Users\\Anon\\source\\repos\\io\\io\\DatabaseViewer.cs",
+              "RelativeDocumentMoniker": "io\\DatabaseViewer.cs",
+              "ToolTip": "C:\\Users\\Anon\\source\\repos\\io\\io\\DatabaseViewer.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "RelativeToolTip": "io\\DatabaseViewer.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-12-03T03:59:48.313Z",
+              "EditorCaption": " [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
               "Title": "packages.config",
               "DocumentMoniker": "C:\\Users\\Anon\\source\\repos\\io\\io\\packages.config",
               "RelativeDocumentMoniker": "io\\packages.config",
@@ -42,46 +58,43 @@
               "RelativeToolTip": "io\\packages.config",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAABBAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000601|",
-              "WhenOpened": "2025-12-01T01:38:20.175Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-12-01T01:38:20.175Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "Form1.cs",
               "DocumentMoniker": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.cs",
               "RelativeDocumentMoniker": "io\\Form1.cs",
               "ToolTip": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.cs",
               "RelativeToolTip": "io\\Form1.cs",
-              "ViewState": "AgIAAJoAAAAAAAAAAAAwwBYAAAAFAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAVAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-12-01T01:27:48.812Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 4,
               "Title": "Form1.Designer.cs",
               "DocumentMoniker": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.Designer.cs",
               "RelativeDocumentMoniker": "io\\Form1.Designer.cs",
               "ToolTip": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.Designer.cs",
               "RelativeToolTip": "io\\Form1.Designer.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAABAAAAANAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-12-01T01:25:45.672Z",
-              "EditorCaption": ""
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001384|",
+              "WhenOpened": "2025-12-01T01:25:45.672Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "Form1.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
               "DocumentMoniker": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.cs",
               "RelativeDocumentMoniker": "io\\Form1.cs",
               "ToolTip": "C:\\Users\\Anon\\source\\repos\\io\\io\\Form1.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
               "RelativeToolTip": "io\\Form1.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-12-01T01:23:08.354Z",
-              "EditorCaption": " [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]"
+              "WhenOpened": "2025-12-01T01:23:08.354Z"
             }
           ]
         }
