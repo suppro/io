@@ -46,8 +46,6 @@ namespace io
         private Label lblStatus;
         private TextBox txtIterations;
         private Label lblIterations;
-        private ComboBox cmbCharacter;
-        private Label lblCharacter;
 
         // === ПЕРЕМЕННЫЕ ЛОГИКИ ===
         private CancellationTokenSource _cancellationTokenSource;
@@ -101,9 +99,6 @@ namespace io
 
         private HashSet<int> currentlyHeldKeys = new HashSet<int>();
         private bool waitingForFullSpeed = false;
-        
-        // === ПЕРЕМЕННАЯ ДЛЯ ВЫБОРА ПЕРСОНАЖА ===
-        private string selectedCharacter = "Друид"; // По умолчанию друид
         
         // === ПЕРЕМЕННЫЕ ДЛЯ ЗАПИСИ МАРШРУТА ===
         private bool isRecording = false;
@@ -245,14 +240,6 @@ namespace io
             // Поле для ввода числа итераций
             lblIterations = new Label() { Text = "Число итераций:", Location = new Point(10, startY), AutoSize = true };
             txtIterations = new TextBox() { Location = new Point(120, startY - 2), Width = 80, Text = "1" };
-            
-            // Выбор персонажа
-            lblCharacter = new Label() { Text = "Персонаж:", Location = new Point(220, startY), AutoSize = true };
-            cmbCharacter = new ComboBox() { Location = new Point(290, startY - 2), Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
-            cmbCharacter.Items.Add("Друид");
-            cmbCharacter.Items.Add("Маг");
-            cmbCharacter.SelectedIndex = 0; // По умолчанию друид
-            cmbCharacter.SelectedIndexChanged += CmbCharacter_SelectedIndexChanged;
 
             int buttonY = startY + 30;
             btnStart = new Button() { Text = "СТАРТ ВСЕГО", Location = new Point(10, buttonY), Width = 150, Height = 40, BackColor = Color.LightGreen };
@@ -269,8 +256,6 @@ namespace io
 
             this.Controls.Add(lblIterations);
             this.Controls.Add(txtIterations);
-            this.Controls.Add(lblCharacter);
-            this.Controls.Add(cmbCharacter);
             this.Controls.Add(btnStart);
             this.Controls.Add(btnStop);
             this.Controls.Add(btnTestReadData);
@@ -293,12 +278,6 @@ namespace io
             recordingTimer = new System.Windows.Forms.Timer();
             recordingTimer.Interval = 10; // Проверка каждые 10мс
             recordingTimer.Tick += RecordingTimer_Tick;
-        }
-        
-        private void CmbCharacter_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            selectedCharacter = cmbCharacter.SelectedItem.ToString();
-            Log($"Выбран персонаж: {selectedCharacter}");
         }
 
         private async void BtnStart_Click(object sender, EventArgs e)
@@ -438,21 +417,6 @@ namespace io
                 {
                     Log("Отмена после фазы сбора.");
                     return;
-                }
-
-                    // 5. ФАЗА ОЖИДАНИЯ ВЫХОДА ИЗ РЕЙДА
-                    Log("Фаза сбора завершена. Переход к фазе ожидания выхода из рейда...");
-                    lblStatus.Text = $"В РАБОТЕ (Итерация {iteration}/{iterations} - Ожидание)";
-                    lblStatus.ForeColor = Color.Orange;
-                
-                try
-                {
-                    await Task.Run(() => RunWaitForRaidExitPhase(token), token);
-                }
-                catch (Exception ex)
-                {
-                    Log($"Ошибка в фазе ожидания: {ex.Message}");
-                    if (token.IsCancellationRequested) return;
                 }
 
                 if (token.IsCancellationRequested)
@@ -779,6 +743,11 @@ namespace io
             }
             // Отключаем монитор скорости, чтобы он не мешал WASD маршруту (он запустит свой)
             waitingForFullSpeed = false;
+            
+            // Нажимаем F3 после клик маршрута
+            Log("Нажатие F3 после клик маршрута");
+            PressKey(VK_F3);
+            Thread.Sleep(200);
         }
 
         // НОВАЯ/ВОССТАНОВЛЕННАЯ ЛОГИКА ОЖИДАНИЯ
@@ -806,8 +775,8 @@ namespace io
                     return;
                 }
 
-                // Обработка застревания/боя (только для друида)
-                if (selectedCharacter != "Маг" && speed > 0.1f && speed < 150f)
+                // Обработка застревания/боя
+                if (speed > 0.1f && speed < 150f)
                 {
                     Log("Бой/Замедление -> Жму X");
                     PressX();
@@ -901,62 +870,7 @@ namespace io
                 {
                     SendKeyUp(ev.VK);
                     if (currentlyHeldKeys.Contains(ev.VK)) currentlyHeldKeys.Remove(ev.VK);
-                    if (ev.VK == VK_W)
-                    {
-                        waitingForFullSpeed = false;
-                        
-                        // Для мага: после отпускания W ждем скорость 0, затем фаза боя и сбор
-                        if (selectedCharacter == "Маг")
-                        {
-                            Log("Маг: после отпускания W ждем скорость 0...");
-                            
-                            // Ждем, пока скорость станет 0
-                            bool moved = false;
-                            long waitStart = GetTimestampMs();
-                            while (GetTimestampMs() - waitStart < 10000) // Максимум 10 секунд ожидания
-                            {
-                                if (token.IsCancellationRequested) return;
-                                
-                                float speed = GetCurrentSpeed();
-                                if (speed > 0.1f) moved = true;
-                                
-                                if (moved && speed <= 0.1f)
-                                {
-                                    Log("Маг: скорость стала 0. Начинаем фазу боя...");
-                                    
-                                    // Фаза боя: 5 нажатий S с интервалом 1 сек
-                                    for (int s = 0; s < 5; s++)
-                                    {
-                                        if (token.IsCancellationRequested) return;
-                                        Log($"Маг: нажатие S {s + 1}/5");
-                                        PressKey(VK_S);
-                                        Thread.Sleep(1000);
-                                    }
-                                    
-                                    // Сбор: 2 клика
-                                    if (token.IsCancellationRequested) return;
-                                    Log("Маг: клик правой кнопкой (970, 625)");
-                                    RightClickAt(970, 625);
-                                    Thread.Sleep(200);
-                                    
-                                    if (token.IsCancellationRequested) return;
-                                    Log("Маг: клик левой кнопкой (885, 312)");
-                                    LeftClickAt(885, 312);
-                                    Thread.Sleep(200);
-                                    
-                                    Log("Маг: фаза боя и сбор завершены. Продолжаем WASD маршрут...");
-                                    break;
-                                }
-                                
-                                Thread.Sleep(100);
-                            }
-                            
-                            if (GetTimestampMs() - waitStart >= 10000)
-                            {
-                                Log("Маг: таймаут ожидания скорости 0. Продолжаем маршрут.");
-                            }
-                        }
-                    }
+                    if (ev.VK == VK_W) waitingForFullSpeed = false;
                 }
                 Log($"WASD: {(ev.IsDown ? "DOWN" : "UP")} 0x{ev.VK:X} ({ev.TimeMs}ms)");
             }
@@ -998,15 +912,8 @@ namespace io
                     // Проверяем, активна ли логика ожидания W (актуально только для WASD)
                     if (waitingForFullSpeed)
                     {
-                        // Для мага не нажимаем X
-                        if (selectedCharacter == "Маг")
-                        {
-                            Thread.Sleep(120);
-                            continue;
-                        }
-                        
                         float speed = GetCurrentSpeed();
-                        // Для друида нормальная скорость 155%
+                        // Нормальная скорость 155%
                         float targetSpeed = 155f;
                         float speedThreshold = 153f;
                         
@@ -1497,6 +1404,14 @@ namespace io
                 {
                     Thread.Sleep(500);
                 }
+            }
+            
+            // Ожидание 10 секунд после сбора
+            Log("Ожидание 10 секунд после фазы сбора...");
+            for (int i = 0; i < 10; i++)
+            {
+                if (token.IsCancellationRequested) return;
+                Thread.Sleep(1000);
             }
             
             Log("Фаза сбора завершена.");
